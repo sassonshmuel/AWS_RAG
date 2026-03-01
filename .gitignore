@@ -1,0 +1,82 @@
+# Build results
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+# User-specific files
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Visual Studio files
+.vs/
+*.vscode/
+
+# Rider / JetBrains
+.idea/
+*.sln.iml
+
+# Build artifacts
+*.dll
+*.exe
+*.app
+*.appx
+*.apk
+*.so
+*.dylib
+*.pdb
+
+# Packages
+*.nupkg
+*.snupkg
+# Don’t ignore project’s own packages if you pack them locally
+!src/**/packages.config
+packages/
+.nuget/
+
+# Visual Studio code coverage results
+*.coverage
+*.coveragexml
+
+# Test results
+TestResults/
+*.trx
+*.log
+*.ds_store
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.old
+*.orig
+
+# OS files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+desktop.ini
+
+# Resharper
+_ReSharper*/
+*.[Rr]e[Ss]harper
+
+# Backup & logs
+*.log
+*.tlog
+*.csv
+*.swp
+
+# Publish outputs
+publish/
+*.Publish.xml
+
+# Local configuration
+appsettings.Development.json
+local.settings.json
+
+# Others
+*.dbmdl
+*.dbproj*

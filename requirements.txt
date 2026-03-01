@@ -1,0 +1,36 @@
+# Core NLP
+nltk
+gensim
+
+# spaCy
+spacy==3.8.11
+# Don't rely on this always working via pip; see note below
+fr_core_news_sm==3.8.0
+
+# Embeddings / HF stack (pins to stay compatible with torch 2.2.x on Intel macOS)
+torch==2.2.2
+torchvision==0.17.2
+torchaudio==2.2.2
+transformers==4.56.2
+sentence-transformers==2.7.0
+accelerate==1.12.0
+safetensors==0.7.0
+faiss-cpu==1.10.0
+
+# ML stack (critical pin to avoid NumPy 2.x ABI crashes)
+numpy==1.26.4
+scipy==1.17.0
+scikit-learn==1.8.0
+
+# Web / app
+flask
+requests
+beautifulsoup4
+
+# Google GenAI
+google-genai==1.62.0
+
+# Env vars
+python-dotenv==1.2.1
+
+boto3
