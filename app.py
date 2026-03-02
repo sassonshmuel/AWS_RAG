@@ -18,17 +18,17 @@ from flask import (
     session,
 )
 
+from bedrock_utils import BedrockClient
+from s3_utils import S3Client
+from sqs_utils import SQSClient
+
 load_dotenv()
 
 # ---------------------------
 # Config (ENV)
 # ---------------------------
-# AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
-#
-# S3_BUCKET = os.getenv("S3_BUCKET", "")
-# SQS_QUEUE_URL = os.getenv("SQS_QUEUE_URL", "")
-S3_BUCKET = "rag-class-docs-sassons"
-S3_PREFIX = "kb-data/"  # must match your data source prefix (or be under it)
+S3_BUCKET = os.getenv("S3_BUCKET", "rag-class-docs-sassons")
+S3_PREFIX = os.getenv("S3_PREFIX", "kb-data/")
 AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
 SQS_QUEUE_URL = os.getenv("SQS_QUEUE_URL", "https://sqs.us-east-1.amazonaws.com/418052138013/rag-class-docs-queue-sassons")
 
@@ -49,7 +49,7 @@ MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "25"))
 FLASK_SECRET_KEY = os.getenv("FLASK_SECRET_KEY", "dev-secret-change-me")
 
 # Optional: if you want an extra throttle so you never start ingestions too frequently
-MIN_SECONDS_BETWEEN_INGESTIONS = int(os.getenv("MIN_SECONDS_BETWEEN_INGESTIONS", "0"))
+MIN_SECONDS_BETWEEN_INGESTIONS = int(os.getenv("MIN_SECONDS_BETWEEN_INGESTIONS", "60"))
 
 
 # ---------------------------
@@ -60,13 +60,12 @@ boto_cfg = Config(
     retries={"max_attempts": 10, "mode": "standard"},
 )
 
-s3 = boto3.client("s3", config=boto_cfg)
-sqs = boto3.client("sqs", config=boto_cfg)
+s3 = S3Client(boto_cfg)
+sqs = SQSClient(boto_cfg, SQS_QUEUE_URL, SQS_LONG_POLL_SECONDS)
 
 # Bedrock clients
-bedrock_agent = boto3.client("bedrock-agent", config=boto_cfg)
-bedrock_agent_runtime = boto3.client("bedrock-agent-runtime", config=boto_cfg)
-
+bedrock = BedrockClient(boto_cfg, KB_ID, KB_DATA_SOURCE_ID, BEDROCK_MODEL_ARN)
+sts = boto3.client("sts", config=boto_cfg)
 
 # ---------------------------
 # App
@@ -113,41 +112,17 @@ def _require_env() -> Tuple[bool, List[str]]:
     ]:
         if not val:
             missing.append(key)
-    return (len(missing) == 0, missing)
-
-
-# ---------------------------
-# Helpers: S3 listing
-# ---------------------------
-def list_s3_files() -> List[Dict[str, Any]]:
-    paginator = s3.get_paginator("list_objects_v2")
-    items: List[Dict[str, Any]] = []
-
-    for page in paginator.paginate(Bucket=S3_BUCKET):
-        for obj in page.get("Contents", []) or []:
-            items.append(
-                {
-                    "key": obj["Key"],
-                    "size": int(obj.get("Size", 0)),
-                    "last_modified": obj["LastModified"].isoformat(),
-                }
-            )
-
-    items.sort(key=lambda x: x["last_modified"], reverse=True)
-    return items
+    return len(missing) == 0, missing
 
 
 def refresh_files_cache() -> None:
     global _files_cache, _files_cache_last_refresh
-    files = list_s3_files()
+    files = s3.list_s3_files(S3_BUCKET)
     with _files_cache_lock:
         _files_cache = files
         _files_cache_last_refresh = time.time()
 
 
-# ---------------------------
-# Helpers: Bedrock ingestion
-# ---------------------------
 def _can_start_new_ingestion() -> bool:
     if MIN_SECONDS_BETWEEN_INGESTIONS <= 0:
         return True
@@ -160,10 +135,7 @@ def _can_start_new_ingestion() -> bool:
 
 def start_kb_ingestion() -> Optional[str]:
     try:
-        resp = bedrock_agent.start_ingestion_job(
-            knowledgeBaseId=KB_ID,
-            dataSourceId=KB_DATA_SOURCE_ID,
-        )
+        resp = bedrock.start_ingestion_job()
         job = resp.get("ingestionJob") or resp.get("job") or resp
         job_id = job.get("ingestionJobId") or job.get("id") or job.get("jobId")
         return job_id
@@ -174,11 +146,7 @@ def start_kb_ingestion() -> Optional[str]:
 
 def get_ingestion_job_status(job_id: str) -> Optional[str]:
     try:
-        resp = bedrock_agent.get_ingestion_job(
-            knowledgeBaseId=KB_ID,
-            dataSourceId=KB_DATA_SOURCE_ID,
-            ingestionJobId=job_id,
-        )
+        resp = bedrock.get_ingestion_job(job_id)
         job = resp.get("ingestionJob") or resp.get("job") or resp
         return job.get("status")
     except Exception:
@@ -372,12 +340,7 @@ def sqs_poller_loop() -> None:
         received_msgs: List[Dict[str, Any]] = []
 
         try:
-            resp = sqs.receive_message(
-                QueueUrl=SQS_QUEUE_URL,
-                MaxNumberOfMessages=10,
-                WaitTimeSeconds=min(max(SQS_LONG_POLL_SECONDS, 0), 20),
-                VisibilityTimeout=60,
-            )
+            resp = sqs.receive_message()
             received_msgs = resp.get("Messages", []) or []
 
             if received_msgs:
@@ -391,10 +354,7 @@ def sqs_poller_loop() -> None:
                 # 3) delete (ack) messages so they won't re-trigger
                 for m in received_msgs:
                     try:
-                        sqs.delete_message(
-                            QueueUrl=SQS_QUEUE_URL,
-                            ReceiptHandle=m["ReceiptHandle"],
-                        )
+                        sqs.client.delete_message(m["ReceiptHandle"])
                     except Exception:
                         # If delete fails, message may reappear later (at-least-once delivery).
                         # Guard + optional dedupe still keeps ingestion safe.
@@ -509,7 +469,7 @@ def api_delete():
     if not key:
         return jsonify({"error": "Missing key"}), 400
     try:
-        s3.delete_object(Bucket=S3_BUCKET, Key=key)
+        s3.delete_object(S3_BUCKET, key)
     except ClientError as e:
         return jsonify({"error": str(e)}), 500
     return jsonify({"ok": True})
@@ -549,25 +509,7 @@ def api_chat():
     _append_chat("user", prompt)
 
     try:
-        resp = bedrock_agent_runtime.retrieve_and_generate(
-            input={"text": prompt},
-            retrieveAndGenerateConfiguration={
-                "type": "KNOWLEDGE_BASE",
-                "knowledgeBaseConfiguration": {
-                    "knowledgeBaseId": KB_ID,
-                    "modelArn": BEDROCK_MODEL_ARN,
-                },
-            },
-        )
-        ###
-        # retrieved = resp.get("retrievedReferences") or []
-        # citations = resp.get("citations") or []
-        # debug_info = {
-        #     "retrieved_count": len(retrieved),
-        #     "citations_count": len(citations),
-        # }
-        # print(f"debug_info: {debug_info}")
-        ###
+        resp = bedrock.retrieve_and_generate(prompt)
 
         output = resp.get("output") or {}
         answer = output.get("text") or ""
@@ -581,11 +523,8 @@ def api_chat():
         answer = f"Unexpected error: {e}"
 
     _append_chat("assistant", answer)
-    # return jsonify({"answer": answer, "debug": debug_info, "history": _get_chat_history()})
     return jsonify({"answer": answer, "history": _get_chat_history()})
 
-# add near top, after boto3 clients
-sts = boto3.client("sts", config=boto_cfg)
 
 @app.get("/api/debug")
 def api_debug():
@@ -622,13 +561,7 @@ def api_retrieve():
     if not query:
         return jsonify({"error": "Empty query"}), 400
 
-    resp = bedrock_agent_runtime.retrieve(
-        knowledgeBaseId=KB_ID,
-        retrievalQuery={"text": query},
-        retrievalConfiguration={
-            "vectorSearchConfiguration": {"numberOfResults": 5}
-        },
-    )
+    resp = bedrock.retrieve(query)
 
     results = resp.get("retrievalResults") or []
     out = []

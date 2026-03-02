@@ -1,72 +1,41 @@
 import os
+from typing import List, Dict, Any
+
 import boto3
 import time
 
+class S3Client:
+    def __init__(self, boto_config):
+        self.client = boto3.client("s3", config=boto_config)
 
-# REGION = os.environ.get("AWS_REGION", "us-east-1")
-# # REGION = "us-east-1"
-# KNOWLEDGE_BASE_ID = "XXXXXXXXXX"
-# DATA_SOURCE_ID = "YYYYYYYYYY"
-#
-# S3_BUCKET = "rag-class-docs-sassons"
-# S3_PREFIX = "kb-data/"  # must match your data source prefix (or be under it)
+    def upload_file(self, bucket, prefix, local_path: str, key_name: str | None = None) -> str:
+        filename = os.path.basename(local_path)
+        key = key_name or f"{prefix}{filename}"
+        self.client.upload_file(local_path, bucket, key)
+        return key
 
+    def list_contents(self, bucket, prefix):
+        resp = self.client.list_objects_v2(Bucket=bucket, Prefix=prefix)
+        for item in resp.get("Contents", []):
+            print(item["Key"], item["Size"])
+        return resp.get("Contents", [])
 
-def create_s3_client(region_name):
-    return boto3.client("s3", region_name=region_name)
+    def list_s3_files(self, bucket) -> List[Dict[str, Any]]:
+        paginator = self.client.get_paginator("list_objects_v2")
+        items: List[Dict[str, Any]] = []
 
+        for page in paginator.paginate(Bucket=bucket):
+            for obj in page.get("Contents", []) or []:
+                items.append(
+                    {
+                        "key": obj["Key"],
+                        "size": int(obj.get("Size", 0)),
+                        "last_modified": obj["LastModified"].isoformat(),
+                    }
+                )
 
-def upload_file(s3, bucket, prefix, local_path: str, key_name: str | None = None) -> str:
-    filename = os.path.basename(local_path)
-    key = key_name or f"{prefix}{filename}"
-    s3.upload_file(local_path, bucket, key)
-    return key
+        items.sort(key=lambda x: x["last_modified"], reverse=True)
+        return items
 
-
-def list_contents(s3, bucket, prefix):
-    resp = s3.list_objects_v2(Bucket=bucket, Prefix=prefix)
-    for item in resp.get("Contents", []):
-        print(item["Key"], item["Size"])
-    return resp.get("Contents", [])
-
-
-
-
-# Example
-# key = upload_file("./docs/handbook.pdf")
-# print("Uploaded to s3://%s/%s" % (S3_BUCKET, key))
-
-# def create_bedrock_client(region_name):
-#     return boto3.client("bedrock-agent", region_name=region_name)
-#
-#
-# def start_ingestion(bedrock_agent, knowledge_base_id, data_source_id, description: str = "sync new docs") -> str:
-#     resp = bedrock_agent.start_ingestion_job(
-#         knowledgeBaseId=knowledge_base_id,
-#         dataSourceId=data_source_id,
-#         description=description,
-#     )
-#     return resp["ingestionJob"]["ingestionJobId"]
-#
-#
-# def wait_for_ingestion(bedrock_agent, knowledge_base_id: str, data_source_id: str, ingestion_job_id: str, poll_seconds: int = 10) -> None:
-#     while True:
-#         resp = bedrock_agent.get_ingestion_job(
-#             knowledgeBaseId=knowledge_base_id,
-#             dataSourceId=data_source_id,
-#             ingestionJobId=ingestion_job_id,
-#         )
-#         job = resp["ingestionJob"]
-#         status = job["status"]  # e.g. STARTING/RUNNING/COMPLETE/FAILED
-#         print("Ingestion status:", status)
-#         if status in ("COMPLETE", "FAILED"):
-#             if status == "FAILED":
-#                 # job often includes failure reasons in fields like 'failureReasons' depending on API version
-#                 raise RuntimeError(f"Ingestion FAILED: {job}")
-#             return
-#         time.sleep(poll_seconds)
-
-# example:
-# job_id = start_ingestion("ingest after upload")
-# wait_for_ingestion(job_id)
-# print("Ingestion complete.")
+    def delete_object(self, bucket, key):
+        self.client.delete_object(Bucket=bucket, Key=key)
