@@ -1,0 +1,39 @@
+.chat-history {
+  height: 56vh;
+  overflow: auto;
+  background: #ffffff;
+}
+
+.chat-bubble {
+  max-width: 92%;
+  padding: 10px 12px;
+  border-radius: 14px;
+  margin-bottom: 10px;
+  border: 1px solid rgba(0,0,0,0.08);
+}
+
+.chat-user {
+  margin-left: auto;
+  background: rgba(13,110,253,0.08);
+}
+
+.chat-assistant {
+  margin-right: auto;
+  background: rgba(25,135,84,0.08);
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  display: inline-block;
+  border: 1px solid rgba(0,0,0,0.15);
+}
+
+.status-dot.idle { background: #adb5bd; }
+.status-dot.inprogress { background: #0d6efd; }
+.status-dot.failed { background: #dc3545; }
+
+code {
+  font-size: 0.9em;
+}
