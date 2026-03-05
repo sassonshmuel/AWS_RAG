@@ -57,6 +57,7 @@
         </div>
 
         <div class="col-12 col-lg-5">
+          <!-- S3 files card -->
           <div class="card shadow-sm">
             <div class="card-header bg-white">
               <div class="fw-semibold">S3 Files</div>
@@ -110,6 +111,39 @@
             </div>
           </div>
 
+          <!-- KB documents card (NEW) -->
+          <div class="card shadow-sm mt-3">
+            <div class="card-header bg-white d-flex justify-content-between align-items-center">
+              <div>
+                <div class="fw-semibold">Knowledge Base Documents</div>
+                <div class="text-muted small">Document status in Bedrock data source (INDEXED / FAILED / etc.)</div>
+              </div>
+              <button id="refreshKbDocsBtn" class="btn btn-outline-secondary btn-sm">Refresh</button>
+            </div>
+
+            <div class="card-body">
+              <div class="table-responsive">
+                <table class="table table-sm align-middle">
+                  <thead>
+                    <tr>
+                      <th style="width: 58%">URI / ID</th>
+                      <th>Status</th>
+                      <th class="text-end">Updated</th>
+                    </tr>
+                  </thead>
+                  <tbody id="kbDocsTbody">
+                    <tr><td colspan="3" class="text-muted">Loading...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div class="text-muted small">
+                <span id="kbDocsMeta"></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Worker card -->
           <div class="card shadow-sm mt-3">
             <div class="card-body">
               <div class="fw-semibold mb-1">Worker</div>

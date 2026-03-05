@@ -351,7 +351,7 @@ def sqs_poller_loop() -> None:
                 # 3) delete (ack) messages so they won't re-trigger
                 for m in received_msgs:
                     try:
-                        sqs.client.delete_message(m["ReceiptHandle"])
+                        sqs.delete_message(m["ReceiptHandle"])
                     except Exception:
                         # If delete fails, message may reappear later (at-least-once delivery).
                         # Guard + optional dedupe still keeps ingestion safe.
@@ -569,6 +569,38 @@ def api_retrieve():
         })
 
     return jsonify({"count": len(out), "results": out})
+
+@app.get("/kb/documents")
+def api_kb_documents():
+    # optional: ?limit=200
+    try:
+        limit = int(request.args.get("limit", "200"))
+    except ValueError:
+        limit = 200
+    limit = max(1, min(limit, 1000))
+
+    try:
+        docs = bedrock.list_kb_documents(max_results=limit)
+    except ClientError as e:
+        return jsonify({"error": str(e)}), 500
+    except Exception as e:
+        return jsonify({"error": f"Unexpected error: {e}"}), 500
+
+    # normalize for UI
+    out = []
+    for d in docs:
+        ident = d.get("identifier") or {}
+        s3 = (ident.get("s3") or {})
+        out.append({
+            "status": d.get("status"),
+            "statusReason": d.get("statusReason"),
+            "updatedAt": (d.get("updatedAt").isoformat() if hasattr(d.get("updatedAt"), "isoformat") else d.get("updatedAt")),
+            "dataSourceType": ident.get("dataSourceType"),
+            "uri": s3.get("uri") or None,
+            "customId": ((ident.get("custom") or {}).get("id") if isinstance(ident.get("custom"), dict) else None),
+        })
+
+    return jsonify({"count": len(out), "documents": out})
 
 # ---------------------------
 # Run

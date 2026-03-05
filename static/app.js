@@ -1,3 +1,5 @@
+// static/app.js (UPDATED: KB docs refresh only after ingestion completes)
+
 async function apiGet(url) {
   const res = await fetch(url, { credentials: "same-origin" });
   if (!res.ok) throw new Error(await res.text());
@@ -31,7 +33,9 @@ function escapeHtml(s) {
   return String(s)
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
 }
 
 function setStatusUI(st) {
@@ -115,15 +119,102 @@ async function loadHistory() {
   renderHistory(data.history || []);
 }
 
+/* ---------------------------
+   KB Documents view
+--------------------------- */
+
+function kbStatusBadge(status) {
+  const s = String(status || "—").toUpperCase();
+  let cls = "text-bg-secondary";
+  if (s === "INDEXED") cls = "text-bg-success";
+  else if (s.includes("FAIL")) cls = "text-bg-danger";
+  else if (s.includes("PROGRESS") || s === "PENDING" || s === "STARTING") cls = "text-bg-primary";
+  else if (s.includes("DELETE")) cls = "text-bg-warning";
+  return `<span class="badge ${cls}">${escapeHtml(s)}</span>`;
+}
+
+function formatIso(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return String(iso);
+  return d.toLocaleString();
+}
+
+async function loadKbDocs() {
+  const tbody = document.getElementById("kbDocsTbody");
+  const meta = document.getElementById("kbDocsMeta");
+
+  try {
+    const data = await apiGet("/kb/documents?limit=200");
+    const docs = data.documents || [];
+
+    if (!docs.length) {
+      tbody.innerHTML = `<tr><td colspan="3" class="text-muted">No documents returned.</td></tr>`;
+    } else {
+      tbody.innerHTML = docs
+        .map((d) => {
+          const idOrUri = d.uri || d.customId || "—";
+          const reason = d.statusReason ? String(d.statusReason) : "";
+          const titleAttr = reason ? `title="${escapeHtml(reason)}"` : "";
+          return `
+            <tr>
+              <td class="text-truncate" title="${escapeHtml(idOrUri)}">${escapeHtml(idOrUri)}</td>
+              <td ${titleAttr}>${kbStatusBadge(d.status)}</td>
+              <td class="text-end text-muted">${escapeHtml(formatIso(d.updatedAt))}</td>
+            </tr>`;
+        })
+        .join("");
+    }
+
+    meta.textContent = `Documents: ${docs.length}`;
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="3" class="text-danger">Failed to load KB documents: ${escapeHtml(String(e))}</td></tr>`;
+    meta.textContent = "";
+  }
+}
+
+/* ---------------------------
+   Status tick with "refresh KB docs only after ingestion completes"
+--------------------------- */
+
+// Remember the last time we refreshed KB docs due to an ingestion completion.
+let lastKbDocsRefreshMarker = 0;
+
+function isSuccessfulCompletionStatus(s) {
+  const v = String(s || "").toUpperCase();
+  return v === "COMPLETE" || v === "SUCCEEDED" || v === "SUCCESS";
+}
+
 async function tickStatus() {
   try {
     const st = await apiGet("/health");
     setStatusUI(st);
-  } catch (e) {}
+
+    // Refresh KB documents ONLY when:
+    // - status is IDLE
+    // - last_job_status indicates success
+    // - last_event_time advanced since last refresh
+    const marker = Number(st.last_event_time || 0);
+    if (
+      st.status === "IDLE" &&
+      isSuccessfulCompletionStatus(st.last_job_status) &&
+      marker > 0 &&
+      marker > lastKbDocsRefreshMarker
+    ) {
+      lastKbDocsRefreshMarker = marker;
+      await loadKbDocs();
+    }
+  } catch (e) {
+    // ignore
+  }
 }
 
+/* ---------------------------
+   Wire up UI
+--------------------------- */
+
 document.addEventListener("DOMContentLoaded", async () => {
-  await Promise.allSettled([loadFiles(false), loadHistory(), tickStatus()]);
+  await Promise.allSettled([loadFiles(false), loadHistory(), tickStatus(), loadKbDocs()]);
 
   document.getElementById("refreshFilesBtn").addEventListener("click", async () => {
     await loadFiles(true);
@@ -132,6 +223,13 @@ document.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("refreshHistoryBtn").addEventListener("click", async () => {
     await loadHistory();
   });
+
+  const kbBtn = document.getElementById("refreshKbDocsBtn");
+  if (kbBtn) {
+    kbBtn.addEventListener("click", async () => {
+      await loadKbDocs();
+    });
+  }
 
   document.getElementById("uploadForm").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -158,6 +256,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     input.value = "";
     await loadFiles(true);
+
   });
 
   document.getElementById("chatForm").addEventListener("submit", async (e) => {
@@ -180,5 +279,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
 
   setInterval(tickStatus, 3000);
+
   setInterval(() => loadFiles(false), 15000);
+
 });
