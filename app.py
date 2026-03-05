@@ -33,8 +33,8 @@ AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
 SQS_QUEUE_URL = os.getenv("SQS_QUEUE_URL", "https://sqs.us-east-1.amazonaws.com/418052138013/rag-class-docs-queue-sassons")
 
 # Bedrock Knowledge Base ingestion
-KB_ID = os.getenv("BEDROCK_KB_ID", "GCISLO4PNP")
-KB_DATA_SOURCE_ID = os.getenv("BEDROCK_KB_DATA_SOURCE_ID", "MSDK3UHT8H")
+KB_ID = os.getenv("BEDROCK_KB_ID", "1Q1XOOHCIT")
+KB_DATA_SOURCE_ID = os.getenv("BEDROCK_KB_DATA_SOURCE_ID", "JRIKD3UQR7")
 
 # Bedrock runtime retrieve&generate (Knowledge Base)
 BEDROCK_MODEL_ARN = os.getenv("BEDROCK_MODEL_ARN", "arn:aws:bedrock:us-east-1:418052138013:inference-profile/us.anthropic.claude-3-5-haiku-20241022-v1:0")
@@ -117,7 +117,7 @@ def _require_env() -> Tuple[bool, List[str]]:
 
 def refresh_files_cache() -> None:
     global _files_cache, _files_cache_last_refresh
-    files = s3.list_s3_files(S3_BUCKET)
+    files = s3.list_s3_files(S3_BUCKET, S3_PREFIX)
     with _files_cache_lock:
         _files_cache = files
         _files_cache_last_refresh = time.time()
@@ -135,10 +135,7 @@ def _can_start_new_ingestion() -> bool:
 
 def start_kb_ingestion() -> Optional[str]:
     try:
-        resp = bedrock.start_ingestion_job()
-        job = resp.get("ingestionJob") or resp.get("job") or resp
-        job_id = job.get("ingestionJobId") or job.get("id") or job.get("jobId")
-        return job_id
+        return bedrock.start_ingestion_job()
     except ClientError as e:
         set_ingestion_failed(str(e), job_status="START_FAILED")
         return None
@@ -410,7 +407,7 @@ def index():
 # ---------------------------
 # API: status + files
 # ---------------------------
-@app.get("/api/status")
+@app.get("/health")
 def api_status():
     with _state_lock:
         st = asdict(_ingestion_state)
@@ -422,7 +419,7 @@ def api_status():
     return jsonify(st)
 
 
-@app.get("/api/files")
+@app.get("/files")
 def api_files():
     force = request.args.get("force") == "1"
     if force:
@@ -440,7 +437,7 @@ def api_files():
 # ---------------------------
 # API: upload + delete
 # ---------------------------
-@app.post("/api/upload")
+@app.post("/upload")
 def api_upload():
     if "file" not in request.files:
         return jsonify({"error": "Missing file field"}), 400
@@ -451,18 +448,14 @@ def api_upload():
     key = S3_PREFIX + (request.form.get("key") or f.filename)
 
     try:
-        s3.upload_fileobj(
-            Fileobj=f,
-            Bucket=S3_BUCKET,
-            Key=key,
-        )
+        s3.upload_file_object(S3_BUCKET, key, f)
     except ClientError as e:
         return jsonify({"error": str(e)}), 500
 
     return jsonify({"ok": True, "key": key})
 
 
-@app.post("/api/delete")
+@app.post("/delete")
 def api_delete():
     data = request.get_json(silent=True) or {}
     key = data.get("key")
@@ -494,12 +487,12 @@ def _append_chat(role: str, text: str) -> None:
         _chat_store.setdefault(cid, []).append({"role": role, "text": text})
 
 
-@app.get("/api/history")
+@app.get("/history")
 def api_history():
     return jsonify({"history": _get_chat_history()})
 
 
-@app.post("/api/chat")
+@app.post("/ask")
 def api_chat():
     data = request.get_json(silent=True) or {}
     prompt = (data.get("prompt") or "").strip()
@@ -526,7 +519,7 @@ def api_chat():
     return jsonify({"answer": answer, "history": _get_chat_history()})
 
 
-@app.get("/api/debug")
+@app.get("/debug")
 def api_debug():
     ident = sts.get_caller_identity()
     return jsonify({
@@ -541,7 +534,7 @@ def api_debug():
     })
 
 
-@app.get("/api/whoami")
+@app.get("/whoami")
 def api_whoami():
     ident = sts.get_caller_identity()
     return jsonify({
@@ -554,7 +547,7 @@ def api_whoami():
         "model_arn": BEDROCK_MODEL_ARN,
     })
 
-@app.post("/api/retrieve")
+@app.post("/retrieve")
 def api_retrieve():
     data = request.get_json(silent=True) or {}
     query = (data.get("query") or "").strip()

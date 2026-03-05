@@ -2,7 +2,6 @@ import os
 from typing import List, Dict, Any
 
 import boto3
-import time
 
 class S3Client:
     def __init__(self, boto_config):
@@ -14,17 +13,24 @@ class S3Client:
         self.client.upload_file(local_path, bucket, key)
         return key
 
+    def upload_file_object(self, bucket, key, file_object):
+        self.client.upload_fileobj(
+            Fileobj=file_object,
+            Bucket=bucket,
+            Key=key,
+        )
+
     def list_contents(self, bucket, prefix):
         resp = self.client.list_objects_v2(Bucket=bucket, Prefix=prefix)
         for item in resp.get("Contents", []):
             print(item["Key"], item["Size"])
         return resp.get("Contents", [])
 
-    def list_s3_files(self, bucket) -> List[Dict[str, Any]]:
+    def list_s3_files(self, bucket, prefix) -> List[Dict[str, Any]]:
         paginator = self.client.get_paginator("list_objects_v2")
         items: List[Dict[str, Any]] = []
 
-        for page in paginator.paginate(Bucket=bucket):
+        for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
             for obj in page.get("Contents", []) or []:
                 items.append(
                     {
@@ -38,4 +44,5 @@ class S3Client:
         return items
 
     def delete_object(self, bucket, key):
+        print(f"Deleting object {key} from bucket {bucket}")
         self.client.delete_object(Bucket=bucket, Key=key)

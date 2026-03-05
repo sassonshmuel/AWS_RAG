@@ -63,7 +63,7 @@ async function loadFiles(force = false) {
   const tbody = document.getElementById("filesTbody");
   const meta = document.getElementById("filesMeta");
 
-  const data = await apiGet(`/api/files${force ? "?force=1" : ""}`);
+  const data = await apiGet(`/files${force ? "?force=1" : ""}`);
   const files = data.files || [];
 
   if (!files.length) {
@@ -89,7 +89,7 @@ async function loadFiles(force = false) {
   document.querySelectorAll("[data-delete-key]").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const key = btn.getAttribute("data-delete-key");
-      await apiPostJson("/api/delete", { key });
+      await apiPostJson("/delete", { key });
       await loadFiles(true);
     });
   });
@@ -111,13 +111,13 @@ function renderHistory(history) {
 }
 
 async function loadHistory() {
-  const data = await apiGet("/api/history");
+  const data = await apiGet("/history");
   renderHistory(data.history || []);
 }
 
 async function tickStatus() {
   try {
-    const st = await apiGet("/api/status");
+    const st = await apiGet("/health");
     setStatusUI(st);
   } catch (e) {}
 }
@@ -144,7 +144,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     const fd = new FormData();
     fd.append("file", input.files[0]);
 
-    const res = await fetch("/api/upload", {
+    const res = await fetch("/upload", {
       method: "POST",
       body: fd,
       credentials: "same-origin",
@@ -171,7 +171,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     input.value = "";
     try {
-      const data = await apiPostJson("/api/chat", { prompt });
+      const data = await apiPostJson("/ask", { prompt });
       renderHistory(data.history || []);
     } catch (err) {
       chatErr.textContent = String(err);
